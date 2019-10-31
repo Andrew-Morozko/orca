@@ -1,0 +1,5 @@
+*.code-workspace
+.vscode
+orca-release/authorized_keys/*.pub
+orca-release/server_keys/id_*
+orca-release/orca
