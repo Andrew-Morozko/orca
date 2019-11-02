@@ -20,7 +20,7 @@ Containers can be configured to:
 * Stop accepting new users after a max number of concurrent users was reached
 * Stop accepting new users and shutdown after all current users have left when the maximum total number of users served or maximum lifetime was reached
 
-Orca is configured by placing labels on Docker Images ([examples](https://github.com/Andrew-Morozko/orca/tree/6c6834b263ee0bb25e84a8083a8565d304b6b665/orca-release/orca_example_images)):
+Orca is configured by placing labels on Docker Images ([examples](https://github.com/Andrew-Morozko/orca/tree/43e48b4567b35b26e89f6908f73284ccee3b98e0/orca-release/orca_example_images)):
 * `orca.kind` – image kind. "web" or "ssh" available, "tcp" planned
 * `orca.name` – image name. By default - name(repo tag) of the image
 * `orca.port` – 80 for web images. Port of HTTP server inside the container
