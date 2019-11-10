@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+service LDAPLogin {
+  rpc AuthPasswd(PasswdAuthRequest) returns (AuthReply) {}
+  rpc AuthKey(KeyAuthRequest) returns (AuthReply) {}
+}
+
+message PasswdAuthRequest {
+  string login = 1;
+  string password = 2;
+}
+
+message KeyAuthRequest {
+  string login = 1;
+  bytes publicKey = 2;
+}
+
+message AuthReply {
+  enum AuthStatus {
+    SERVER_ERROR = 0;
+    OK = 1;
+    FAILED = 2;
+  }
+  AuthStatus status = 1;
+  // string message = 2;
+}

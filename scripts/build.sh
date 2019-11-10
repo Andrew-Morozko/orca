@@ -1,5 +1,10 @@
 #!/bin/bash
-cd "$( dirname "${BASH_SOURCE[0]}" )/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+echo "*** building orca ***"
 go build -v -o orca-release/orca
-exit $?
+code=$?
+
+if [ $code -ne 0 ]; then
+    exit $code
+fi

@@ -144,3 +144,19 @@ func (ul *UserList) GetUserByWebToken(tasktoken string) (ui *User, err error) {
 	ul.usersByWebtoken[tasktoken] = ui
 	return ui, nil
 }
+
+// This is a mess... This func is called with authorized user id via ldap rpc
+// TODO: restructure auth process, decouple auth methods from handlers in main
+// e.g.: web auth also could be performed via login/password
+func (ul *UserList) GetUserFromSSH(uid string) (ui *User, err error) {
+	ul.lock.Lock()
+	defer ul.lock.Unlock()
+	ui, found := ul.users[uid]
+	if !found {
+		ui = &User{
+			ID: uid,
+		}
+		ul.users[uid] = ui
+	}
+	return ui, nil
+}

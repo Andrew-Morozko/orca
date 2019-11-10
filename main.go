@@ -1,15 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"path/filepath"
 
+	"github.com/Andrew-Morozko/orca/ldap/ldaplogin"
 	ioctrl "github.com/Andrew-Morozko/orca/orca/ioctrl"
 	trie "github.com/Andrew-Morozko/orca/orca/search"
 	orcassh "github.com/Andrew-Morozko/orca/orca/ssh"
+	"google.golang.org/grpc"
 
 	"github.com/Andrew-Morozko/orca/mylog"
 	"github.com/Andrew-Morozko/orca/orca"
@@ -35,6 +36,16 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 	// "github.com/docker/docker/pkg/stdcopy"
 )
+
+func getEnv(key string) string {
+	val, found := os.LookupEnv(key)
+	if !found {
+		panic(fmt.Sprintf(`Env var named "%s" not found!`, key))
+	}
+	return val
+}
+
+var grpcServerAddr = getEnv("ORCA_GRPC_LDAP_SERVER")
 
 func singleJoiningSlash(a, b string) string {
 	aslash := strings.HasSuffix(a, "/")
@@ -225,7 +236,7 @@ func sshMenu(rw io.ReadWriter, phs orcassh.PTYHandlerSetter, ui *orca.User) (oi 
 
 	tasks := imageList.GetImages(orca.ImageKindSSH, ui)
 	trie := trie.New()
-	for task, _ := range tasks {
+	for task := range tasks {
 		trie.Add(task)
 		_, err = io.WriteString(term, task)
 		if err != nil {
@@ -300,7 +311,6 @@ func sshMenu(rw io.ReadWriter, phs orcassh.PTYHandlerSetter, ui *orca.User) (oi 
 }
 
 func sshHandler(jc jobcontroller.JobController, sess *orcassh.SSHSession) {
-	jc.Job.Add(1)
 	defer jc.Job.Done()
 	jc = jc.NewCtx(sess.Context())
 	jc = jc.AddLoggerPrefix("SSH handler")
@@ -341,7 +351,6 @@ func sshHandler(jc jobcontroller.JobController, sess *orcassh.SSHSession) {
 	}()
 
 	// determine user identity
-	var ui *orca.User
 	ui, ok := sess.Context().Value("User").(*orca.User)
 	if !ok {
 		err = errors.New("User is missing")
@@ -448,39 +457,93 @@ func setupSSHServer(jc jobcontroller.JobController, shutdownReq <-chan struct{})
 	jc.Job.Add(1)
 	defer jc.Job.Done()
 
-	var publicKeys []ssh.PublicKey
+	ldapConn, err := grpc.Dial(
+		grpcServerAddr,
+		grpc.WithInsecure(),
+	)
+	if err != nil {
+		jc.Logger.Fatal.Err(err, "Can't connect to grpc-ldap-server")
+		return
+	}
+	defer func() {
+		if err != nil {
+			ldapConn.Close()
+		}
+	}()
+
+	ldapClient := ldaplogin.NewLDAPLoginClient(ldapConn)
 
 	s := &ssh.Server{
 		Addr: ":22222",
-		PasswordHandler: func(ctx ssh.Context, pass string) bool {
-			return false
-			// jc.Logger.Log("Password auth")
-			// ctx.SetValue(
-			// 	"User",
-			// 	&orca.User{
-			// 		ID: ctx.User(),
-			// 	},
-			// )
-			// return pass == "secret"
-		},
-		Handler: func(sess ssh.Session) {
-			sshHandler(jc, orcassh.Wrap(sess))
-		},
-		PublicKeyHandler: func(ctx ssh.Context, key ssh.PublicKey) bool {
-			jc.Logger.Log("Public key auth")
-			ctx.SetValue("MainContext", ctx)
-			ctx.SetValue(
-				"User",
-				&orca.User{
-					ID: ctx.User(),
+		PasswordHandler: func(ctx ssh.Context, pass string) (authorized bool) {
+			reply, err := ldapClient.AuthPasswd(
+				jc,
+				&ldaplogin.PasswdAuthRequest{
+					Login:    ctx.User(),
+					Password: pass,
 				},
 			)
-			for _, allowedKey := range publicKeys {
-				if ssh.KeysEqual(key, allowedKey) {
-					return true
-				}
+			if err != nil {
+				jc.Logger.Err(err, "error in rpc call to AuthPasswd")
+				return
 			}
-			return false
+			switch reply.GetStatus() {
+			case ldaplogin.AuthReply_OK:
+			case ldaplogin.AuthReply_FAILED:
+				jc.Logger.Logf(`User "%s" failed to pass password auth`, ctx.User())
+				return
+			case ldaplogin.AuthReply_SERVER_ERROR:
+				jc.Logger.Error.Logf(`Auth server error on password login by "%s"`, ctx.User())
+				return
+			}
+			ui, err := userlist.GetUserFromSSH(ctx.User())
+			if err != nil {
+				jc.Logger.Err(err, "error in while fetching UserIdentity from the list")
+				return
+			}
+			ctx.SetValue(
+				"User",
+				ui,
+			)
+			return true
+
+		},
+		Handler: func(sess ssh.Session) {
+			jc.Job.Add(1)
+			sshHandler(jc, orcassh.Wrap(sess))
+		},
+		PublicKeyHandler: func(ctx ssh.Context, key ssh.PublicKey) (authorized bool) {
+			reply, err := ldapClient.AuthKey(
+				jc,
+				&ldaplogin.KeyAuthRequest{
+					Login:     ctx.User(),
+					PublicKey: key.Marshal(),
+				},
+			)
+			if err != nil {
+				jc.Logger.Err(err, "error in rpc call to AuthKey")
+				return
+			}
+			switch reply.GetStatus() {
+			case ldaplogin.AuthReply_OK:
+			case ldaplogin.AuthReply_FAILED:
+				jc.Logger.Logf(`User "%s" failed to pass key auth`, ctx.User())
+				return
+			case ldaplogin.AuthReply_SERVER_ERROR:
+				jc.Logger.Error.Logf(`Auth server error on key auth by "%s"`, ctx.User())
+				return
+			}
+
+			ui, err := userlist.GetUserFromSSH(ctx.User())
+			if err != nil {
+				jc.Logger.Err(err, "error in while fetching UserIdentity from the list")
+				return
+			}
+			ctx.SetValue(
+				"User",
+				ui,
+			)
+			return true
 		},
 
 		ConnCallback: nil, // optional callback for wrapping net.Conn before handling
@@ -512,38 +575,13 @@ func setupSSHServer(jc jobcontroller.JobController, shutdownReq <-chan struct{})
 		jc.Logger.Log(fn, " is loaded")
 	}
 
-	jc.Logger.Log("Loading authorized keys:")
-	files, err = filepath.Glob("./authorized_keys/*.pub")
-	if err != nil {
-		return err
-	}
-	for _, filename := range files {
-		fn := filepath.Base(filename)
-		data, err := ioutil.ReadFile(filename)
-		if err != nil {
-			return err
-		}
-		keys := bytes.Split(data, []byte("\n"))
-		for _, key := range keys {
-			key = bytes.TrimSpace(key)
-			if len(key) < 10 || key[0] == '#' {
-				continue
-			}
-			parsedKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
-			if err != nil {
-				jc.Logger.Err(err, fn, " key import error")
-			} else {
-				publicKeys = append(publicKeys, parsedKey)
-			}
-		}
-		jc.Logger.Log(fn, " is loaded")
-	}
-
 	jc.Logger.Logf("Starting ssh server on %s", s.Addr)
 
+	jc.Job.Add(1)
 	go func() {
-		jc.Job.Add(1)
 		defer jc.Job.Done()
+		defer ldapConn.Close()
+
 		var err error
 		// Todo check time between exits, if < x - go away, else - continue retrying
 		for restartNo := 1; restartNo <= maxRestarts; restartNo++ {

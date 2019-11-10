@@ -3,3 +3,4 @@
 orca-release/authorized_keys/*.pub
 orca-release/server_keys/id_*
 orca-release/orca
+ldap/ldap-server-release/ldap-server
