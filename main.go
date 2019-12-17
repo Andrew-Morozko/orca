@@ -7,15 +7,15 @@ import (
 	"path/filepath"
 
 	"github.com/Andrew-Morozko/orca/ldap/ldaplogin"
-	ioctrl "github.com/Andrew-Morozko/orca/orca/ioctrl"
-	trie "github.com/Andrew-Morozko/orca/orca/search"
-	orcassh "github.com/Andrew-Morozko/orca/orca/ssh"
-	"google.golang.org/grpc"
-
 	"github.com/Andrew-Morozko/orca/mylog"
 	"github.com/Andrew-Morozko/orca/orca"
 	"github.com/Andrew-Morozko/orca/orca/errctrl"
+	ioctrl "github.com/Andrew-Morozko/orca/orca/ioctrl"
 	"github.com/Andrew-Morozko/orca/orca/mydocker"
+	trie "github.com/Andrew-Morozko/orca/orca/search"
+	orcassh "github.com/Andrew-Morozko/orca/orca/ssh"
+	"github.com/facette/natsort"
+	"google.golang.org/grpc"
 
 	"github.com/Andrew-Morozko/orca/jobcontroller"
 
@@ -236,7 +236,14 @@ func sshMenu(rw io.ReadWriter, phs orcassh.PTYHandlerSetter, ui *orca.User) (oi 
 
 	tasks := imageList.GetImages(orca.ImageKindSSH, ui)
 	trie := trie.New()
-	for task := range tasks {
+
+	tasknames := make([]string, 0, len(tasks))
+	for taskname := range tasks {
+		tasknames = append(tasknames, taskname)
+	}
+	natsort.Sort(tasknames)
+
+	for _, task := range tasknames {
 		trie.Add(task)
 		_, err = io.WriteString(term, task)
 		if err != nil {
