@@ -41,11 +41,11 @@ func (oi *Image) launchContainer(jc jobcontroller.JobController) (oc *Container,
 	switch oi.Kind {
 	case ImageKindWeb:
 		// Todo: deep copy lib?
-		contConf = &*contConf
+		var contCfgCopy container.Config
+		contCfgCopy = *contConf
+		contConf = &contCfgCopy
 		var newEnv = make([]string, len(oi.containerConfig.Env)+1)
-		for i, val := range oi.containerConfig.Env {
-			newEnv[i] = val
-		}
+		copy(newEnv, oi.containerConfig.Env)
 		// TODO: cleanup this mess
 		// TODO: do we even really need this?
 		// Derive from host or send in X- header?

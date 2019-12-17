@@ -15,8 +15,8 @@ type ImageKind = string
 
 const (
 	ImageKindWeb ImageKind = "web"
-	ImageKindSSH           = "ssh"
-	ImageKindTCP           = "tcp"
+	ImageKindSSH ImageKind = "ssh"
+	ImageKindTCP ImageKind = "tcp"
 )
 
 var ImageKinds = []ImageKind{ImageKindWeb, ImageKindSSH, ImageKindTCP}
