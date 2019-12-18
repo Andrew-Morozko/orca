@@ -69,8 +69,8 @@ func comparePassword(hashStr, password string) (equal bool, err error) {
 		return
 	}
 
-	salt := data[len(data)-4:]
-	hash := data[:len(data)-4]
+	salt := data[sha1.Size:]
+	hash := data[:sha1.Size]
 
 	sha := sha1.New()
 	_, err = sha.Write([]byte(password))
