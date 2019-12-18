@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 
 	"log"
 	"net"
@@ -244,6 +245,8 @@ func retry(count int, delay time.Duration, f func() error) (err error) {
 func main() {
 	defer exitlib.HandleExit()
 	_ = ioutil.WriteFile("./ldap-grpc-srv.pid", []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
 
 	var ldapConn *ldap.Conn
 	err := retry(10, time.Second, func() (err error) {
@@ -286,8 +289,13 @@ func main() {
 			ldapConn: ldapConn,
 		},
 	)
+	go func() {
+		<-sigChan
+		grpcServer.GracefulStop()
+	}()
 	log.Println("Server started")
-	log.Println(grpcServer.Serve(grpcLis))
+	err = grpcServer.Serve(grpcLis)
+	log.Printf("Server ended: %s", err)
 }
 
 var errMissingPeerData = errors.New("peer data not found")
